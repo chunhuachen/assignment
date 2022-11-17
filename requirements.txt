@@ -1,4 +1,5 @@
 Django
+djangorestframework-simplejwt
 psycopg2
 SQLAlchemy
 aldjemy
