@@ -1,5 +1,7 @@
 import json
 import time
+import jwt
+import datetime
 import sqlalchemy, sqlalchemy.orm
 from django.shortcuts import render
 from django.http import HttpResponse, JsonResponse
@@ -7,7 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from sqlalchemy import create_engine
 from myapp.models import Users, Base
-from datetime import datetime
+from rest_framework import exceptions
 
 engine = create_engine("postgresql://ui_test:1234@db:5432/ui_test")
 Base.metadata.create_all(engine)
@@ -18,10 +20,61 @@ def index(request):
 def test(request):
     return HttpResponse("test!\r\n")
 
+def gen_token(user):
+    value = {
+        "account": user.acct,
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(days=0, minutes=5),
+    }
+    encoded_jwt = jwt.encode(value, settings.SECRET_KEY, algorithm="HS256")
+    return encoded_jwt.decode("utf-8")
 
-def get_all_users(session):
-    users = session.query(Users).all()
-    return users
+def verify_token(request):
+    authorization_header = request.headers.get("Authorization")
+    if authorization_header:
+        try:
+            access_token = authorization_header.split(" ")[1]
+            decoded = jwt.decode(access_token.encode("utf-8"), settings.SECRET_KEY, algorithm="HS256")
+        except jwt.ExpiredSignatureError:
+            raise exceptions.AuthenticationFailed("access_token expired")
+        except IndexError:
+            raise exceptions.AuthenticationFailed("Token prefix missing")
+
+        Session = sqlalchemy.orm.sessionmaker(bind=engine)
+        session = Session()
+
+        if "account" in decoded:
+            user = session.query(Users).filter_by(acct=decoded["account"]).first()
+        else:
+            raise exceptions.AuthenticationFailed("User not found")
+        return True
+    return False
+    
+
+@csrf_exempt
+def user_login(request):
+    Session = sqlalchemy.orm.sessionmaker(bind=engine)
+    session = Session()
+
+    result = ""
+    msg = ""
+    resp = {}
+    d = json.loads(request.body)
+    if "user" in d and "pwd" in d:
+        acct = d["user"]
+        pwd = d["pwd"]
+        user = session.query(Users).filter_by(acct=acct,pwd=pwd).first()
+        if user:
+            result = "success"
+            msg = "login success"
+            resp["token"] = gen_token(user)
+    else:
+        result = "failure"
+        msg = "no account or no passwod information"
+    resp["result"] = result
+    resp["message"] = msg
+    return JsonResponse(resp)
+
+
 
 @csrf_exempt
 def create_user(request):
@@ -44,7 +97,7 @@ def create_user(request):
         usr.acct = user_acct
         usr.pwd = user_pwd
         usr.fullname = user_fullname
-        dt_tz = datetime.now()
+        dt_tz = datetime.datetime.now()
         dt = dt_tz.replace(tzinfo=None)
         usr.created_at = dt
         usr.updated_at = dt
@@ -59,6 +112,8 @@ def create_user(request):
     return JsonResponse(resp)
 
 def list_user(request):
+    if not verify_token(request):
+        raise exceptions.AuthenticationFailed("token verified failed.")
     Session = sqlalchemy.orm.sessionmaker(bind=engine)
     session = Session()
 
@@ -71,6 +126,8 @@ def list_user(request):
 
 @csrf_exempt
 def search_user(request):
+    if not verify_token(request):
+        raise exceptions.AuthenticationFailed("token verified failed.")
     Session = sqlalchemy.orm.sessionmaker(bind=engine)
     s = Session()
 
