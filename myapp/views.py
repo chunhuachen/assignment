@@ -174,4 +174,30 @@ def user_detail(request):
         return JsonResponse({"result": result, "msg": msg, "user_detail": user_info})
     return JsonResponse({"result": SUCCESS, "msg": "no such user."})
 
+@csrf_exempt
+def update_user(request):
+    if not verify_token(request):
+        return JsonResponse({"result": FAILURE, "msg": "token verification failure"}, status=403)
 
+    d = json.loads(request.body)
+    # we should check the account from jwt is correct or not
+    acct = d["account"]
+    Session = sqlalchemy.orm.sessionmaker(bind=engine)
+    s = Session()
+
+    user = s.query(Users).filter_by(acct=acct).first()
+    if user:
+        updated = False
+        if "pwd" in d:
+            user.pwd = d["pwd"]
+            updated = True
+        if "fullname" in d:
+            user.fullname = d["fullname"]
+            updated = True
+        if updated:
+            dt_tz = datetime.datetime.now()
+            dt = dt_tz.replace(tzinfo=None)
+            user.updated_at = dt
+        s.commit()
+
+    return JsonResponse({"result": SUCCESS, "msg": "updated successfully"})
