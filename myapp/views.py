@@ -11,7 +11,10 @@ from sqlalchemy import create_engine
 from myapp.models import Users, Base
 from rest_framework import exceptions
 
-engine = create_engine("postgresql://ui_test:1234@db:5432/ui_test")
+SUCCESS = "success"
+FAILURE = "failure"
+#engine = create_engine("postgresql://ui_test:1234@db:5432/ui_test")
+engine = create_engine(settings.DATABASE_ENGINE)
 Base.metadata.create_all(engine)
 
 def index(request):
@@ -26,14 +29,15 @@ def gen_token(user):
         "exp": datetime.datetime.utcnow() + datetime.timedelta(days=0, minutes=5),
     }
     encoded_jwt = jwt.encode(value, settings.SECRET_KEY, algorithm="HS256")
-    return encoded_jwt.decode("utf-8")
+    print('encoded_jwt:%r'%encoded_jwt)
+    return encoded_jwt
 
 def verify_token(request):
     authorization_header = request.headers.get("Authorization")
     if authorization_header:
         try:
             access_token = authorization_header.split(" ")[1]
-            decoded = jwt.decode(access_token.encode("utf-8"), settings.SECRET_KEY, algorithm="HS256")
+            decoded = jwt.decode(access_token.encode("utf-8"), settings.SECRET_KEY, algorithms=["HS256"])
         except jwt.ExpiredSignatureError:
             raise exceptions.AuthenticationFailed("access_token expired")
         except IndexError:
@@ -155,3 +159,19 @@ def search_user(request):
         resp["users"] = users
 
     return JsonResponse(resp)
+
+def user_detail(request):
+    if not verify_token(request):
+        return JsonResponse({"result": FAILURE, "msg": "token verification failure"}, status=403)
+    acct = request.GET["account"]
+    Session = sqlalchemy.orm.sessionmaker(bind=engine)
+    s = Session()
+    user = s.query(Users).filter_by(acct=acct).first()
+    if user:
+        result = SUCCESS
+        msg = "query success."
+        user_info = {"account": acct, "fullname": user.fullname, "created_at": user.created_at, "updated_at": user.updated_at}
+        return JsonResponse({"result": result, "msg": msg, "user_detail": user_info})
+    return JsonResponse({"result": SUCCESS, "msg": "no such user."})
+
+

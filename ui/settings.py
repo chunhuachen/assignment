@@ -92,6 +92,7 @@ DATABASES = {
     }
 }
 
+DATABASE_ENGINE = "postgresql://{0}:{1}@db:5432/{2}".format(os.environ.get('POSTGRES_UI_USER'), os.environ.get('POSTGRES_UI_PASSWORD'), os.environ.get('POSTGRES_UI_NAME'))
 
 # Password validation
 # https://docs.djangoproject.com/en/4.1/ref/settings/#auth-password-validators
