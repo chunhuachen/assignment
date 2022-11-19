@@ -21,6 +21,6 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_UI_NAME=ui_test
       - POSTGRES_UI_USER=ui_test
-      - POSTGRES_UI_PASSWORD=1234
+      - POSTGRES_UI_PASSWORD=ui_test
     depends_on:
       - db
