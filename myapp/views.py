@@ -7,11 +7,9 @@ import sqlalchemy, sqlalchemy.orm
 import logging
 from django.shortcuts import render
 from django.http import HttpResponse, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from sqlalchemy import create_engine
 from myapp.models import Users, Base
-from rest_framework import exceptions
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -130,10 +128,10 @@ def search_user(request):
         return JsonResponse({"result": FAILURE, "message": "wrong request body"}, status=400)
 
     if "fullname" in d:
+        users = []
         fullname = d["fullname"]
         Session = sqlalchemy.orm.sessionmaker(bind=engine)
         s = Session()
-        users = []
         user = s.query(Users).filter(Users.fullname==fullname).all()
         if len(user) > 0:
             for usr in user:
@@ -141,9 +139,7 @@ def search_user(request):
             msg = "{0} user(s) found.".format(len(user))
         else:
             msg = "no user has fullname:'{0}'.".format(fullname)
-        resp = {"result": SUCCESS, "message": msg}
-        if len(users) > 0:
-            resp["users"] = users
+        resp = {"result": SUCCESS, "message": msg, "users": users}
         return JsonResponse(resp)
     else:
         return JsonResponse({"result": FAILURE, "message": "fullname not provided."}, status=400)
@@ -155,6 +151,10 @@ def user_detail(request, account):
     token_verified, account_in_token = verify_token(request)
     if not token_verified:
         return JsonResponse({"result": FAILURE, "message": "token verification failure"}, status=403)
+
+    if account != account_in_token:
+        return JsonResponse({"result": FAILURE, "message": "user mismatch."}, status=400)
+
     Session = sqlalchemy.orm.sessionmaker(bind=engine)
     s = Session()
     user = s.query(Users).filter_by(acct=account).first()
@@ -165,7 +165,7 @@ def user_detail(request, account):
         return JsonResponse({"result": result, "message": msg, "user_detail": user_info})
     return JsonResponse({"result": SUCCESS, "message": "no such user."})
 
-def update_user(request):
+def create_user(request):
     if not check_request_method(request, 'PUT'):
         return JsonResponse({"result": FAILURE, "message": "wrong request method"}, status=405)
 
@@ -180,32 +180,11 @@ def update_user(request):
     else:
         return JsonResponse({"result": FAILURE, "message": "no account information."}, status=400)
 
+
     Session = sqlalchemy.orm.sessionmaker(bind=engine)
     s = Session()
     user = s.query(Users).filter_by(acct=acct).first()
-    if user:
-        # the account exist, we should verify its jwt token
-        token_verified, account_in_token = verify_token(request)
-        if not token_verified:
-            return JsonResponse({"result": FAILURE, "message": "token verification failure"}, status=403)
-        if acct != account_in_token:
-            return JsonResponse({"result": FAILURE, "message": "user mismatch."}, status=400)
-
-        updated = False
-        if "pwd" in d:
-            user.pwd = d["pwd"]
-            updated = True
-        if "fullname" in d:
-            user.fullname = d["fullname"]
-            updated = True
-        if updated:
-            dt_tz = datetime.datetime.now()
-            dt = dt_tz.replace(tzinfo=None)
-            user.updated_at = dt
-        s.commit()
-        return JsonResponse({"result": SUCCESS, "message": "account updated."})
-
-    else:
+    if not user:
         # new user
         if "pwd" in d:
             passwd = d["pwd"]
@@ -229,17 +208,54 @@ def update_user(request):
         s.add(usr)
         s.commit()
         return JsonResponse({"result": SUCCESS, "message": "account created.", "token": gen_token(usr)}, status=201)
+    else:
+        return JsonResponse({"result": FAILURE, "message": "duplicated account name."}, status=400)
+
+
+
+def update_user(request):
+    if not check_request_method(request, 'PUT'):
+        return JsonResponse({"result": FAILURE, "message": "wrong request method"}, status=405)
 
     token_verified, account_in_token = verify_token(request)
     if not token_verified:
         return JsonResponse({"result": FAILURE, "message": "token verification failure"}, status=403)
 
-    # we should check the account from jwt is correct or not
+    try:
+        d = json.loads(request.body)
+    except ValueError as e:
+        logger.error("body:%r not a json data", request.body)
+        return JsonResponse({"result": FAILURE, "message": "wrong request body"}, status=400)
+
+    if "account" in d:
+        acct = d["account"]
+        if acct != account_in_token:
+            return JsonResponse({"result": FAILURE, "message": "user mismatch."}, status=400)
+    else:
+        return JsonResponse({"result": FAILURE, "message": "no account information."}, status=400)
+
     Session = sqlalchemy.orm.sessionmaker(bind=engine)
     s = Session()
+    user = s.query(Users).filter_by(acct=acct).first()
+    if user:
+        updated = False
+        if "pwd" in d:
+            user.pwd = d["pwd"]
+            updated = True
+        if "fullname" in d:
+            user.fullname = d["fullname"]
+            updated = True
+        if updated:
+            dt_tz = datetime.datetime.now()
+            dt = dt_tz.replace(tzinfo=None)
+            user.updated_at = dt
+        s.commit()
+        return JsonResponse({"result": SUCCESS, "message": "account updated."})
+    else:
+        return JsonResponse({"result": FAILURE, "message": "can not find this account."}, status=400)
 
 
-    return JsonResponse({"result": SUCCESS, "message": "updated successfully"})
+
 
 def delete_user(request, account):
     if not check_request_method(request, 'DELETE'):
