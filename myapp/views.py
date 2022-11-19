@@ -57,17 +57,18 @@ def verify_token(request):
         except IndexError:
             logger.error("Token prefix missing")
 
-        if decode_success and "account" in decoded:
-            Session = sqlalchemy.orm.sessionmaker(bind=engine)
-            session = Session()
+        if decode_success:
+            if "account" in decoded:
+                Session = sqlalchemy.orm.sessionmaker(bind=engine)
+                session = Session()
 
-            user = session.query(Users).filter_by(acct=decoded["account"]).first()
-            if user:
-                account = decoded["account"]
-                ret = True
-                logger.info("account in token:%r", account)
-        else:
-            log.error("User not found")
+                user = session.query(Users).filter_by(acct=decoded["account"]).first()
+                if user:
+                    account = decoded["account"]
+                    ret = True
+                    logger.info("account in token:%r", account)
+            else:
+                logger.error("User not found")
     return ret, account
     
 
