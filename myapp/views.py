@@ -3,6 +3,7 @@ import time
 import jwt
 import datetime
 import sqlalchemy, sqlalchemy.orm
+import logging
 from django.shortcuts import render
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -11,11 +12,19 @@ from sqlalchemy import create_engine
 from myapp.models import Users, Base
 from rest_framework import exceptions
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 SUCCESS = "success"
 FAILURE = "failure"
-#engine = create_engine("postgresql://ui_test:1234@db:5432/ui_test")
+
 engine = create_engine(settings.DATABASE_ENGINE)
 Base.metadata.create_all(engine)
+
+def check_request_method(request, method):
+    if request.method != method:
+        return False
+    return True
 
 def index(request):
     return HttpResponse("Hello, world. You're at the myapp index.\r\n")
@@ -29,32 +38,39 @@ def gen_token(user):
         "exp": datetime.datetime.utcnow() + datetime.timedelta(days=0, minutes=5),
     }
     encoded_jwt = jwt.encode(value, settings.SECRET_KEY, algorithm="HS256")
-    print('encoded_jwt:%r'%encoded_jwt)
+    logger.info('encoded_jwt:%r', encoded_jwt)
     return encoded_jwt
 
 def verify_token(request):
+    return True, ''
+    account = None
+    ret = False
+    decode_success = False
     authorization_header = request.headers.get("Authorization")
     if authorization_header:
         try:
             access_token = authorization_header.split(" ")[1]
             decoded = jwt.decode(access_token.encode("utf-8"), settings.SECRET_KEY, algorithms=["HS256"])
+            decode_success = True
         except jwt.ExpiredSignatureError:
-            raise exceptions.AuthenticationFailed("access_token expired")
+            logger.error("access_token expired")
         except IndexError:
-            raise exceptions.AuthenticationFailed("Token prefix missing")
+            logger.error("Token prefix missing")
 
-        Session = sqlalchemy.orm.sessionmaker(bind=engine)
-        session = Session()
+        if decode_success and "account" in decoded:
+            Session = sqlalchemy.orm.sessionmaker(bind=engine)
+            session = Session()
 
-        if "account" in decoded:
             user = session.query(Users).filter_by(acct=decoded["account"]).first()
+            if user:
+                account = decoded["account"]
+                ret = True
+                logger.info("account in token:%r", account)
         else:
-            raise exceptions.AuthenticationFailed("User not found")
-        return True
-    return False
+            log.error("User not found")
+    return ret, account
     
 
-@csrf_exempt
 def user_login(request):
     Session = sqlalchemy.orm.sessionmaker(bind=engine)
     session = Session()
@@ -79,8 +95,6 @@ def user_login(request):
     return JsonResponse(resp)
 
 
-
-@csrf_exempt
 def create_user(request):
     Session = sqlalchemy.orm.sessionmaker(bind=engine)
     session = Session()
@@ -116,7 +130,8 @@ def create_user(request):
     return JsonResponse(resp)
 
 def list_user(request):
-    if not verify_token(request):
+    token_verified, account_in_token = verify_token(request)
+    if not token_verified:
         raise exceptions.AuthenticationFailed("token verified failed.")
     Session = sqlalchemy.orm.sessionmaker(bind=engine)
     session = Session()
@@ -128,9 +143,9 @@ def list_user(request):
         users_response.append(usr)
     return JsonResponse({"users": users_response})
 
-@csrf_exempt
 def search_user(request):
-    if not verify_token(request):
+    token_verified, account_in_token = verify_token(request)
+    if not token_verified:
         raise exceptions.AuthenticationFailed("token verified failed.")
     Session = sqlalchemy.orm.sessionmaker(bind=engine)
     s = Session()
@@ -160,23 +175,29 @@ def search_user(request):
 
     return JsonResponse(resp)
 
-def user_detail(request):
-    if not verify_token(request):
+def user_detail(request, account):
+    if not check_request_method(request, 'GET'):
+        return JsonResponse({"result": FAILURE, "msg": "wrong request method"}, status=405)
+
+    token_verified, account_in_token = verify_token(request)
+    if not token_verified:
         return JsonResponse({"result": FAILURE, "msg": "token verification failure"}, status=403)
-    acct = request.GET["account"]
     Session = sqlalchemy.orm.sessionmaker(bind=engine)
     s = Session()
-    user = s.query(Users).filter_by(acct=acct).first()
+    user = s.query(Users).filter_by(acct=account).first()
     if user:
         result = SUCCESS
         msg = "query success."
-        user_info = {"account": acct, "fullname": user.fullname, "created_at": user.created_at, "updated_at": user.updated_at}
+        user_info = {"account": account, "fullname": user.fullname, "created_at": user.created_at, "updated_at": user.updated_at}
         return JsonResponse({"result": result, "msg": msg, "user_detail": user_info})
     return JsonResponse({"result": SUCCESS, "msg": "no such user."})
 
-@csrf_exempt
 def update_user(request):
-    if not verify_token(request):
+    if not check_request_method(request, 'PUT'):
+        return JsonResponse({"result": FAILURE, "msg": "wrong request method"}, status=405)
+
+    token_verified, account_in_token = verify_token(request)
+    if not token_verified:
         return JsonResponse({"result": FAILURE, "msg": "token verification failure"}, status=403)
 
     d = json.loads(request.body)
@@ -201,3 +222,27 @@ def update_user(request):
         s.commit()
 
     return JsonResponse({"result": SUCCESS, "msg": "updated successfully"})
+
+def delete_user(request, account):
+    if not check_request_method(request, 'DELETE'):
+        return JsonResponse({"result": FAILURE, "msg": "wrong request method"}, status=405)
+
+    token_verified, account_in_token = verify_token(request)
+    if not token_verified:
+        return JsonResponse({"result": FAILURE, "msg": "token verification failure"}, status=403)
+
+    logger.info("account:%r", account)
+
+    if account == account_in_token:
+        Session = sqlalchemy.orm.sessionmaker(bind=engine)
+        s = Session()
+        user = s.query(Users).filter_by(acct=account).first()
+        if user:
+            s.delete(user)
+            s.commit()
+            return JsonResponse({"result": SUCCESS, "msg": "deleted successfully"})
+        else:
+            return JsonResponse({"result": FAILURE, "msg": "no such user."}, status=400)
+    else:
+        #delete your own account only
+        return JsonResponse({"result": FAILURE, "msg": "user mismatch."}, status=400)
