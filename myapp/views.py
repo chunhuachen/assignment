@@ -103,13 +103,37 @@ def list_user(request):
     if not token_verified:
         return JsonResponse({"result": FAILURE, "message": "token verification failure"}, status=403)
 
+    logger.info("parameters:%r", request.GET)
+    order_by = None
+    if "order_by" in request.GET:
+        order_by = request.GET["order_by"]
+
+    records_per_page = None
+    page_id = None
+    if "records_per_page" in request.GET and "page_id" in request.GET:
+        records_per_page = int(request.GET["records_per_page"])
+        page_id = int(request.GET["page_id"])
+
     Session = sqlalchemy.orm.sessionmaker(bind=engine)
     session = Session()
 
     users_response = []
-    users = session.query(Users).all()
+    q = session.query(Users)
+    if order_by:
+        if order_by == "account":
+            q = q.order_by(Users.acct.asc())
+        elif order_by == "fullname":
+            q = q.order_by(Users.fullname.asc())
+    if records_per_page and page_id:
+        if page_id >= 1:
+            begin = (page_id-1) * records_per_page
+            end = begin + records_per_page
+            q = q.slice(begin, end)
+        else:
+            logger.error("invalid page id")
+    users = q.all()
     for usr in users:
-        usr = {"account": usr.acct, "fullname": usr.fullname, "created_at": usr.created_at, "updated_at": usr.updated_at}
+        usr = {"account": usr.acct, "fullname": usr.fullname}
         users_response.append(usr)
     return JsonResponse({"result":SUCCESS, "message": SUCCESS, "users": users_response})
 

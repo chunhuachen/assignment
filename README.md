@@ -4,7 +4,7 @@
 
 3. Run API:
     Create User:
-        curl -d '{"account":<user account>, "pwd":<user passowrd>, "fullname":<full name>}' -H "Content-Type: application/json" -X PUT http://127.0.0.1:8000/myapp/update-user
+        curl -d '{"account":<user account>, "pwd":<user passowrd>, "fullname":<full name>}' -H "Content-Type: application/json" -X PUT http://127.0.0.1:8000/myapp/create-user
 
     Login User:
         curl -d '{"account":<user account>, "pwd":<user passowrd>}' -H "Content-Type: application/json" -X POST http://127.0.0.1:8000/myapp/login-user
@@ -23,3 +23,9 @@
 
     Search User by Full Name:
         curl -d '{"fullname":<full name>" -H "Content-Type: application/json" -H "Authorization:Bearer <Token>" -X POST http://127.0.0.1:8000/myapp/search-user
+
+
+# To run unit test
+    docker exec -it <container name> python manage.py test
+example:
+    docker exec -it ui_assignment-web-1 python manage.py test
