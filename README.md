@@ -27,5 +27,5 @@
 
 # To run unit test
     docker exec -it <container name> python manage.py test
-example:
-    docker exec -it ui_assignment-web-1 python manage.py test
+    example:
+        docker exec -it ui_assignment-web-1 python manage.py test
