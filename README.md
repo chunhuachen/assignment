@@ -1,8 +1,11 @@
 1. git clone git@github.com:chunhuachen/ui_assignment.git
 
-2. docker compose up
+2. to start the project:
+
+    docker compose up
 
 3. Run API:
+
     Create User:
         PUT /myapp/create-user
 
